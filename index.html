@@ -34,10 +34,8 @@
       </div>
 
       <div class="row" style="margin-bottom:8px;">
-        <button id="btnCheck">Check availability</button>
-        <button id="btnRegister" class="primary">Register (create)</button>
-        <button id="btnAuth">Authenticate (get)</button>
-        <button id="btnClear">Clear registration</button>
+        <button id="btnGo" class="primary">Use fingerprint now</button>
+        <button id="btnClear">Clear saved passkey</button>
       </div>
 
       <div class="status" id="log">Ready.</div>
@@ -47,12 +45,11 @@
   <script>
     const logEl = document.getElementById('log');
     const supportPill = document.getElementById('supportPill');
-    const btnCheck = document.getElementById('btnCheck');
-    const btnRegister = document.getElementById('btnRegister');
-    const btnAuth = document.getElementById('btnAuth');
+    const btnGo = document.getElementById('btnGo');
     const btnClear = document.getElementById('btnClear');
 
     const STORAGE_KEY = 'webauthn_demo_credential_id';
+    const STORAGE_KEY_RAW = 'webauthn_demo_credential_raw';
     const STORAGE_USER = 'webauthn_demo_user';
 
     function log(msg, type) {
@@ -131,7 +128,9 @@
       if (!cred) throw new Error('Creation returned null');
 
       const id = cred.id; // string
+      const rawB64 = bufToB64url(cred.rawId);
       localStorage.setItem(STORAGE_KEY, id);
+      localStorage.setItem(STORAGE_KEY_RAW, rawB64);
       localStorage.setItem(STORAGE_USER, publicKey.user.name);
 
       log({
@@ -145,15 +144,16 @@
 
     async function authenticate() {
       const id = localStorage.getItem(STORAGE_KEY);
-      if (!id) {
+      const raw = localStorage.getItem(STORAGE_KEY_RAW);
+      if (!id && !raw) {
         log('No credential stored. Register first.', 'warn');
         return;
       }
-      const allowCredential = [{
-        id: b64urlToBuf(bufToB64url(new TextEncoder().encode(id))), // normalize to ArrayBuffer
+      const allowCredential = (id || raw) ? [{
+        id: raw ? b64urlToBuf(raw) : b64urlToBuf(bufToB64url(new TextEncoder().encode(id))),
         type: 'public-key',
         transports: ['internal']
-      }];
+      }] : undefined;
       const publicKey = {
         challenge: randBuf(32),
         allowCredentials: allowCredential,
@@ -174,22 +174,21 @@
 
     function clearRegistration() {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STORAGE_KEY_RAW);
       localStorage.removeItem(STORAGE_USER);
       log('Cleared stored credential id. Register again to continue.', 'warn');
     }
 
-    btnCheck.addEventListener('click', checkAvailability);
-    btnRegister.addEventListener('click', async () => {
+    btnGo.addEventListener('click', async () => {
       try {
-        await checkAvailability();
-        await registerCredential();
-      } catch (e) { log('Register error: ' + (e && e.message || e), 'err'); }
-    });
-    btnAuth.addEventListener('click', async () => {
-      try {
-        await checkAvailability();
+        const ok = await checkAvailability();
+        if (!ok) return;
+        const has = !!(localStorage.getItem(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY_RAW));
+        if (!has) await registerCredential();
         await authenticate();
-      } catch (e) { log('Auth error: ' + (e && e.message || e), 'err'); }
+      } catch (e) {
+        log('Error: ' + (e && e.message || e), 'err');
+      }
     });
     btnClear.addEventListener('click', clearRegistration);
 
@@ -203,3 +202,5 @@
   </script>
 </body>
 </html>
+
+
